@@ -1,0 +1,501 @@
+Tourist Guide - Product Requirements Document (PRD)
+Project Overview
+Name: Tourist Guide Backend
+Type: RESTful API for Tour & Travel Platform
+Tech Stack: Node.js, Express.js, TypeScript, Prisma ORM, PostgreSQL, Better Auth
+
+Visual Documentation
+Better Auth Flow
+https://./dfd-better-auth.svg
+
+Business Logic Flow
+https://./dfd-business-logic.svg
+
+1. Core Functionality
+1.1 User Management (Better Auth)
+Registration: Email/password + OAuth (Google, Facebook) via Better Auth
+
+Authentication: Better Auth handles sessions, JWT, refresh tokens, email verification
+
+Roles: admin, tour_guide, tourist (stored in User table)
+
+Profile: Name, email, phone, address, profile image, date of birth
+
+1.2 Package Management
+CRUD Operations: Create, read, update, delete tour packages (admin only)
+
+Properties: title, description, price, duration, tourType, location, images, tourPlan (JSON)
+
+Search & Filter: By title, tourType, location, price range with pagination
+
+1.3 Booking System
+Create Booking: Tourist creates a booking request for a package
+
+Properties: tourDate, totalPrice, discountApplied, status (in_review/accepted/rejected/cancelled/paid)
+
+Flow: Tourist books → Tour guide accepts/rejects → Tourist pays (Stripe)
+
+1.4 Wishlist & Stories & Reviews
+Wishlist: Tourists add packages to wishlist (unique per user-package)
+
+Story Sharing: Tourists share travel stories with images (max 5), likes
+
+Reviews: Tourists rate tour guides after trip completion
+
+1.5 Payment System
+Stripe Integration: Payment intent creation, webhook handling
+
+Discount Logic: User books ≥3 paid trips → 10% discount on next booking
+
+PDF Invoice: Generated via PDFKit, uploaded to Cloudinary, emailed
+
+1.6 Admin Features
+Dashboard stats, user management (search, filter by role, role change), offer management, bulk package import
+
+1.7 Tour Guide Features
+Profile (specialization, qualification, experience, fee, availability), assigned tours, earnings tracking
+
+1.8 Notification System
+Email (Nodemailer) + in-app notifications (Notification table)
+
+2. Product Data Model (PRD Style)
+Better Auth provides its own tables: user, session, account, verification. We extend the user table with custom fields.
+
+1️⃣ User (extended with custom fields)
+Description
+A user represents any person using the platform. Roles: Admin, Tour Guide, Tourist.
+
+Attributes (Better Auth default + custom)
+
+ID (cuid)
+
+Email (unique)
+
+Email verified (boolean)
+
+Name
+
+Image (profile picture)
+
+Phone (optional)
+
+Role (ADMIN / TOUR_GUIDE / TOURIST, default TOURIST)
+
+Address (optional)
+
+Date of birth (optional)
+
+isRequestedTourGuide (boolean, default false)
+
+Deleted at (soft delete)
+
+Created at, updated at
+
+Relationships
+
+A user can create multiple bookings (if tourist)
+
+A user can create multiple stories (if tourist)
+
+A user can create multiple reviews (if tourist)
+
+A user (if tour guide) has one TourGuideProfile
+
+A user can add multiple wishlist items
+
+A user has multiple notifications
+
+2️⃣ TourPackage
+Description
+A tour package represents a travel plan offered on the platform.
+
+Attributes
+
+ID (uuid)
+
+Title
+
+Slug (unique)
+
+Description (text)
+
+Price (float)
+
+Duration (days)
+
+Tour type (string)
+
+Location
+
+Images (string array)
+
+Overview (text, optional)
+
+Tour plan (JSON array)
+
+isActive (boolean)
+
+Created at, updated at, deleted at (soft delete)
+
+Relationships
+
+A package can have multiple bookings
+
+A package can be added to multiple wishlists
+
+3️⃣ Booking
+Description
+A booking represents a tour package reservation created by a tourist.
+
+Attributes
+
+ID (uuid)
+
+Status (IN_REVIEW, ACCEPTED, REJECTED, CANCELLED, PAID)
+
+Tour date (DateTime)
+
+Total price (float)
+
+Discount applied (float, default 0)
+
+Payment intent ID (string, optional)
+
+Created at, updated at, deleted at
+
+Relationships
+
+Belongs to one user (tourist)
+
+Belongs to one tour package
+
+Can be assigned to one tour guide (after acceptance)
+
+Has one payment record
+
+4️⃣ TourGuideProfile
+Description
+Additional profile for users with role TOUR_GUIDE.
+
+Attributes
+
+ID (uuid)
+
+Specialization (string)
+
+Qualification (string)
+
+Experience (int)
+
+Fee (float, optional)
+
+Available days (string array)
+
+Available time slot (string)
+
+Bio (text, optional)
+
+Certificate URL (string, optional)
+
+Contact email, contact phone (optional)
+
+Earnings total (float, default 0)
+
+Created at, updated at
+
+Relationships
+
+Belongs to one user
+
+Can have multiple assigned bookings
+
+Can receive multiple reviews
+
+5️⃣ Wishlist
+Attributes: ID, userId, packageId, createdAt
+Constraint: unique userId+packageId
+
+6️⃣ Story
+Attributes: ID, userId, title, content, images (array, max 5), location, likes, createdAt, updatedAt
+
+7️⃣ Review
+Attributes: ID, userId, guideId, rating (1-5), comment, createdAt
+
+8️⃣ Payment
+Attributes: ID, bookingId (unique), amount, stripePaymentIntentId, status, receiptUrl, createdAt
+
+9️⃣ Offer
+Attributes: ID, title, description, discountCode, validUntil, isActive, createdAt
+
+🔟 Notification
+Attributes: ID, userId, title, message, type, isRead, createdAt
+
+🔗 Relationship Summary
+User → many Bookings, Stories, Reviews, Wishlist items, Notifications
+
+User (Tour Guide) → one TourGuideProfile
+
+TourGuideProfile → many Reviews, many Bookings (as guide)
+
+TourPackage → many Bookings, many Wishlist items
+
+Booking → one User, one TourPackage, one Payment, one TourGuideProfile (optional)
+
+🧠 Business Rules
+Only users with role TOUR_GUIDE can accept/reject bookings
+
+Only one bid (acceptance) per booking
+
+When a booking is accepted, status becomes ACCEPTED; tourist can then pay
+
+When payment succeeds, status becomes PAID
+
+Reviews only after trip completion (PAID and tourDate passed)
+
+Wishlist unique per user-package
+
+Discount: 3+ PAID bookings → 10% discount on next booking
+
+Request to become guide: Tourist requests → admin approves → role changes to TOUR_GUIDE, empty profile created
+
+Search & Filter: packages by title/location (contains), tourType exact, price range
+
+Pagination: page, limit (default 10, max 100)
+
+Soft delete: User, Package, Booking (deletedAt)
+
+Auto-cancel IN_REVIEW bookings older than 48 hours (cron)
+
+Reminder email 24 hours before tour date (cron)
+
+3. API Endpoints
+Better Auth provides its own auth endpoints. We mount them under /api/auth.
+
+Better Auth Routes (automatic)
+Method	Endpoint	Description
+POST	/api/auth/sign-up	Register (email/password)
+POST	/api/auth/sign-in	Login
+POST	/api/auth/sign-out	Logout
+GET	/api/auth/session	Get current session
+POST	/api/auth/reset-password	Request password reset
+POST	/api/auth/reset-password/:token	Reset password
+GET	/api/auth/oauth/google	Google OAuth
+GET	/api/auth/oauth/facebook	Facebook OAuth
+Custom Routes (using Better Auth session middleware)
+Users
+Method	Endpoint	Description	Auth
+GET	/api/v1/users	Get all users (admin only, search/filter)	Admin
+GET	/api/v1/users/:id	Get user by ID	Self/Admin
+PATCH	/api/v1/users/:id	Update user profile	Self/Admin
+DELETE	/api/v1/users/:id	Delete user (soft)	Admin
+Tour Packages
+Method	Endpoint	Description	Auth
+POST	/api/v1/packages	Create package	Admin
+GET	/api/v1/packages	Get all packages (public, pagination, search, filter)	Public
+GET	/api/v1/packages/:id	Get package by ID	Public
+PATCH	/api/v1/packages/:id	Update package	Admin
+DELETE	/api/v1/packages/:id	Delete package	Admin
+Bookings
+Method	Endpoint	Description	Auth
+POST	/api/v1/bookings	Create booking	Tourist
+GET	/api/v1/bookings/my-bookings	My bookings (paginated)	Tourist
+GET	/api/v1/bookings/assigned	Assigned tours for guide	Tour Guide
+PATCH	/api/v1/bookings/:id/status	Accept/reject/cancel	Owner/Guide
+GET	/api/v1/bookings/:id	Get booking details	Owner/Guide/Admin
+Wishlist
+Method	Endpoint	Description	Auth
+POST	/api/v1/wishlist	Add to wishlist	Tourist
+GET	/api/v1/wishlist	Get my wishlist	Tourist
+DELETE	/api/v1/wishlist/:packageId	Remove from wishlist	Tourist
+Stories
+Method	Endpoint	Description	Auth
+POST	/api/v1/stories	Create story	Tourist
+GET	/api/v1/stories	Get all stories (public)	Public
+GET	/api/v1/stories/:id	Get story details	Public
+PATCH	/api/v1/stories/:id	Update story	Owner
+DELETE	/api/v1/stories/:id	Delete story	Owner/Admin
+Reviews
+Method	Endpoint	Description	Auth
+POST	/api/v1/reviews	Create review	Tourist
+GET	/api/v1/reviews/guide/:guideId	Get reviews for guide	Public
+PATCH	/api/v1/reviews/:id	Update review	Owner
+DELETE	/api/v1/reviews/:id	Delete review	Owner/Admin
+Tour Guide Management
+Method	Endpoint	Description	Auth
+GET	/api/v1/tour-guide	List all guides (filter by specialization)	Public
+GET	/api/v1/tour-guide/:id	Get guide profile	Public
+PATCH	/api/v1/tour-guide/profile	Update my guide profile	Tour Guide
+POST	/api/v1/tour-guide/request	Request to become guide	Tourist
+GET	/api/v1/tour-guide/requests	Pending requests	Admin
+PATCH	/api/v1/tour-guide/requests/:userId/approve	Approve request	Admin
+PATCH	/api/v1/tour-guide/requests/:userId/reject	Reject request	Admin
+Admin
+Method	Endpoint	Description	Auth
+GET	/api/v1/admin/dashboard	Stats	Admin
+GET	/api/v1/admin/users	Users with search/filter/role	Admin
+PATCH	/api/v1/admin/users/:id/role	Change user role	Admin
+GET	/api/v1/admin/bookings	All bookings	Admin
+POST	/api/v1/admin/offers	Create offer	Admin
+GET	/api/v1/admin/offers	Get offers	Admin
+POST	/api/v1/admin/packages/bulk-upload	Bulk import packages	Admin
+Payment
+Method	Endpoint	Description	Auth
+POST	/api/v1/payments/create-intent	Create Stripe payment intent	Tourist
+POST	/api/v1/payments/webhook	Stripe webhook	Public
+GET	/api/v1/payments/booking/:bookingId	Payment status	Owner/Admin
+4. Project Structure
+text
+src/
+├── config/index.ts
+├── lib/
+│   ├── prisma.ts
+│   └── better-auth.ts          # Better Auth configuration
+├── errors/
+│   ├── AppError.ts
+│   ├── handlePrismaError.ts
+│   ├── handlePrismaValidationError.ts
+│   └── handleZodError.ts
+├── interface/error.ts
+├── middlewares/
+│   ├── auth.ts                 # Better Auth session wrapper
+│   ├── role.ts
+│   ├── globalErrorhandler.ts
+│   ├── notFound.ts
+│   ├── validateRequest.ts
+│   └── upload.ts
+├── modules/
+│   ├── User/
+│   ├── Package/
+│   ├── Booking/
+│   ├── Wishlist/
+│   ├── Story/
+│   ├── Review/
+│   ├── TourGuide/
+│   ├── Admin/
+│   └── Payment/
+├── routes/index.ts
+├── utils/
+│   ├── catchAsync.ts
+│   ├── sendResponse.ts
+│   ├── pagination.ts
+│   ├── discount.ts
+│   └── email.ts
+├── app.ts
+└── server.ts
+5. Technical Specifications
+Environment Variables
+env
+NODE_ENV=development
+PORT=5000
+DATABASE_URL=postgresql://user:password@host:5432/tourist_guide
+
+# Better Auth
+BETTER_AUTH_SECRET=your_secret
+BETTER_AUTH_URL=http://localhost:5000
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+FACEBOOK_CLIENT_ID=...
+FACEBOOK_CLIENT_SECRET=...
+
+# Email
+EMAIL_HOST=smtp.gmail.com
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASS=app_password
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=...
+CLOUDINARY_API_KEY=...
+CLOUDINARY_API_SECRET=...
+
+# Stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+FRONTEND_URL=http://localhost:3000
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=admin123
+Dependencies
+Production: express, cors, dotenv, @prisma/client, pg, better-auth, cloudinary, multer, multer-storage-cloudinary, stripe, nodemailer, pdfkit, node-cron, date-fns, ms, uuid, zod, http-status
+Development: typescript, ts-node-dev, prisma, eslint, @types/*
+
+6. Business Logic Rules (Detailed)
+Registration: Better Auth handles hashing, email verification. Default role = TOURIST.
+
+Login: Better Auth creates session. Session contains user role.
+
+Auth Middleware: Wrapper around Better Auth's getSession to attach req.user.
+
+Role Middleware: Checks req.user.role.
+
+Create Booking: Tourist must be authenticated; package exists; tourDate future.
+
+Accept/Reject: Only guide assigned to booking can change status. On accept → status ACCEPTED, on reject → REJECTED.
+
+Payment Flow: After acceptance, tourist creates Stripe payment intent; webhook sets status PAID.
+
+Discount Rule: Count PAID bookings for user; if ≥3, allow 10% discount on next booking.
+
+Wishlist: Unique constraint on userId+packageId.
+
+Review: Only allowed if user has PAID booking with that guide and tourDate passed.
+
+Request to become guide: Set isRequestedTourGuide=true; admin approves → role changes, TourGuideProfile created.
+
+Search & Filter: Prisma contains (case-insensitive) for title/location; exact match for tourType; gte/lte for price.
+
+Pagination: All GET lists support page, limit (default 10, max 100), sortBy, sortOrder.
+
+Soft delete: deletedAt field; excluded from queries by default.
+
+Cron Jobs:
+
+Hourly: cancel IN_REVIEW bookings older than 48 hours.
+
+Daily 8 AM: send reminder email for next day's tours.
+
+7. Response Format
+Success Response (Single)
+json
+{
+  "success": true,
+  "message": "Resource retrieved successfully",
+  "data": { ... }
+}
+Success Response (List)
+json
+{
+  "success": true,
+  "message": "Resources retrieved successfully",
+  "meta": { "page": 1, "limit": 10, "total": 100, "totalPages": 10 },
+  "data": [ ... ]
+}
+Error Response
+json
+{
+  "success": false,
+  "message": "Error message",
+  "errorSources": [ { "path": "field", "message": "error" } ],
+  "stack": "..."
+}
+8. Deployment Checklist
+Set NODE_ENV=production
+
+Configure PostgreSQL (Neon/Supabase)
+
+Set all environment variables
+
+Run npx prisma generate && npx prisma migrate deploy
+
+Run seed script to create admin user (using Better Auth API or direct insert)
+
+Build: npm run build
+
+Start: npm start
+
+Configure Stripe webhook to https://yourdomain.com/api/v1/payments/webhook
+
+9. Admin Credentials (for README)
+Admin Email: admin@example.com (change via .env)
+
+Admin Password: admin123 (change via .env)
+
